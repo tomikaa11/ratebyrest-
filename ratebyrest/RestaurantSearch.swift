@@ -3,15 +3,20 @@ import Foundation
 import MapKit
 
 enum RestaurantSearch {
-    static func search(city: City, countryName: String) async throws -> [RestaurantPlace] {
+    static func search(
+        city: City,
+        countryName: String,
+        category: CuisineCategory = .all
+    ) async throws -> [RestaurantPlace] {
         let region = MKCoordinateRegion(
             center: CLLocationCoordinate2D(latitude: city.latitude, longitude: city.longitude),
             latitudinalMeters: 22_000,
             longitudinalMeters: 22_000
         )
-        var items = try await mapItems(query: "restaurant", region: region, restaurantsOnly: true)
+        let query = category.searchKeyword
+        var items = try await mapItems(query: query, region: region, restaurantsOnly: true)
         if items.isEmpty {
-            items = try await mapItems(query: "restaurant", region: region, restaurantsOnly: false)
+            items = try await mapItems(query: query, region: region, restaurantsOnly: false)
         }
         var seen = Set<String>()
         var places: [RestaurantPlace] = []
@@ -28,6 +33,7 @@ enum RestaurantSearch {
             let address = item.address?.shortAddress
                 ?? item.addressRepresentations?.fullAddress(includingRegion: false, singleLine: true)
                 ?? city.name
+            let inferredCuisine = category == .all ? nil : category.rawValue
             places.append(
                 RestaurantPlace(
                     placeKey: key,
@@ -37,7 +43,8 @@ enum RestaurantSearch {
                     countryCode: city.countryCode,
                     countryName: countryName,
                     latitude: coordinate.latitude,
-                    longitude: coordinate.longitude
+                    longitude: coordinate.longitude,
+                    cuisine: inferredCuisine
                 )
             )
         }

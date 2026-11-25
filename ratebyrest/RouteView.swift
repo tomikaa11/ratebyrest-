@@ -28,7 +28,7 @@ struct RouteView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             VStack(alignment: .leading, spacing: 12) {
-                Picker("Közlekedés", selection: $mode) {
+                Picker("Travel", selection: $mode) {
                     ForEach(TravelMode.allCases) { item in
                         Text(item.title).tag(item)
                     }
@@ -36,7 +36,7 @@ struct RouteView: View {
                 .pickerStyle(.segmented)
 
                 if isCalculating {
-                    ProgressView("Útvonal számítása…")
+                    ProgressView("Calculating the route…")
                 } else if !distanceText.isEmpty {
                     Text("\(distanceText) · \(timeText)")
                         .font(.headline)
@@ -52,7 +52,7 @@ struct RouteView: View {
                 Button {
                     openInMaps()
                 } label: {
-                    Label("Megnyitás a Térképben", systemImage: "map")
+                    Label("Open in Maps", systemImage: "map")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
@@ -61,7 +61,7 @@ struct RouteView: View {
             .padding()
             .background(Theme.background)
         }
-        .navigationTitle("Útvonal")
+        .navigationTitle("Directions")
         .navigationBarTitleDisplayMode(.inline)
         .background(Theme.background)
         .task { location.request() }
@@ -72,8 +72,8 @@ struct RouteView: View {
     private func calculate() async {
         guard let latitude = location.latitude, let longitude = location.longitude else {
             message = location.denied
-                ? "A helyzet ki van kapcsolva. Az útvonalat a Térkép appban tudod megnyitni."
-                : "A helyzetre várunk az útvonalhoz."
+                ? "Location is off. You can still open the route in Maps."
+                : "Waiting for your location to draw the route."
             return
         }
         isCalculating = true
@@ -92,17 +92,17 @@ struct RouteView: View {
         do {
             let response = try await MKDirections(request: request).calculate()
             guard let route = response.routes.first else {
-                message = "Nincs útvonal a két pont között."
+                message = "There is no route between these points."
                 return
             }
             routeCoordinates = coordinates(of: route.polyline)
             distanceText = (route.distance / 1000).formatted(
-                .number.precision(.fractionLength(1)).locale(Locale(identifier: "hu_HU"))
+                .number.precision(.fractionLength(1)).locale(Locale(identifier: "en_US"))
             ) + " km"
             let formatter = DateComponentsFormatter()
             formatter.allowedUnits = route.expectedTravelTime >= 3600 ? [.hour, .minute] : [.minute]
             formatter.unitsStyle = .short
-            formatter.calendar?.locale = Locale(identifier: "hu_HU")
+            formatter.calendar?.locale = Locale(identifier: "en_US")
             timeText = formatter.string(from: route.expectedTravelTime) ?? ""
             var rect = route.polyline.boundingMapRect
             let padX = max(rect.size.width * 0.35, 800)
@@ -113,7 +113,7 @@ struct RouteView: View {
             routeCoordinates = []
             distanceText = ""
             timeText = ""
-            message = "Az útvonalat nem sikerült kiszámolni. Nyisd meg a Térképben."
+            message = "The route could not be calculated. Open it in Maps."
         }
     }
 
@@ -146,7 +146,7 @@ private enum TravelMode: String, CaseIterable, Identifiable {
     case walking
 
     var id: String { rawValue }
-    var title: String { self == .automobile ? "Autó" : "Gyalog" }
+    var title: String { self == .automobile ? "Drive" : "Walk" }
     var transport: MKDirectionsTransportType { self == .automobile ? .automobile : .walking }
     var launchOption: String {
         self == .automobile ? MKLaunchOptionsDirectionsModeDriving : MKLaunchOptionsDirectionsModeWalking

@@ -55,7 +55,7 @@
         "ENABLE_PREVIEWS": "YES",
         "ENABLE_USER_SELECTED_FILES": "readonly",
         "GENERATE_INFOPLIST_FILE": "YES",
-        "INFOPLIST_KEY_CFBundleDisplayName": "Rate by Restaurants",
+        "INFOPLIST_KEY_CFBundleDisplayName": "wit",
         "INFOPLIST_KEY_ITSAppUsesNonExemptEncryption": "NO",
         "INFOPLIST_KEY_NSLocationUsageDescription": "Az útvonalhoz az app a helyzetedet használja.",
         "INFOPLIST_KEY_NSLocationWhenInUseUsageDescription": "Az útvonalhoz az app a helyzetedet használja.",

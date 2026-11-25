@@ -16,15 +16,15 @@ struct ContentView: View {
     var body: some View {
         TabView(selection: $tab) {
             ExploreView()
-                .tabItem { Label("Éttermek", systemImage: "fork.knife") }
+                .tabItem { Label("Home", systemImage: "house.fill") }
                 .tag(0)
             GlobeView()
-                .tabItem { Label("Földgömb", systemImage: "globe.europe.africa") }
+                .tabItem { Label("Globe", systemImage: "globe.europe.africa") }
                 .tag(1)
             NavigationStack {
                 AccountView()
             }
-            .tabItem { Label("Fiók", systemImage: "person.crop.circle") }
+            .tabItem { Label("Account", systemImage: "person.crop.circle") }
             .tag(2)
         }
         .tint(Theme.accent)

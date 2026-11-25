@@ -8,6 +8,7 @@ final class AppModel {
     var userEmail: String?
     var schema: SchemaState = .unknown
     var favorite: Favorite?
+    var tier = TierProgress()
     private var appliedFavoriteCountry = false
 
     var country: Country {
@@ -22,20 +23,33 @@ final class AppModel {
         userEmail = session?.email
         if userID == nil {
             favorite = nil
+            tier = TierProgress()
             return
         }
         if let stored = try? await Backend.fetchFavorite() {
             favorite = stored
-            if !appliedFavoriteCountry, let code = stored.countryCode, CountryCatalog.all.contains(where: { $0.code == code }) {
+            if !appliedFavoriteCountry, let code = stored.countryCodes.first, CountryCatalog.all.contains(where: { $0.code == code }) {
                 countryCode = code
                 appliedFavoriteCountry = true
             }
         }
+        await refreshTier()
     }
 
-    func saveFavoriteCountry(_ code: String) async throws {
-        favorite = try await Backend.saveFavoriteCountry(code, keeping: favorite)
+    func refreshTier() async {
+        guard isSignedIn else {
+            tier = TierProgress()
+            return
+        }
+        if let progress = try? await Backend.fetchTier() {
+            tier = progress
+        }
+    }
+
+    func toggleFavoriteCountry(_ code: String) async throws {
+        favorite = try await Backend.toggleFavoriteCountry(code, keeping: favorite, limit: tier.maxFavoriteCountries)
         appliedFavoriteCountry = true
+        await refreshTier()
     }
 
     func saveFavoriteRestaurant(_ place: RestaurantPlace) async throws {

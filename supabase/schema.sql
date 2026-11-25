@@ -38,6 +38,12 @@ create unique index if not exists dishes_one_vote
 create index if not exists restaurants_country_city
   on public.restaurants (country_code, city);
 
+alter table public.restaurants
+  add column if not exists cuisine text default 'General';
+
+create index if not exists restaurants_city_cuisine
+  on public.restaurants (city, cuisine);
+
 create table if not exists public.reports (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users (id) on delete cascade,
@@ -140,3 +146,55 @@ create policy "favorites insert own" on public.favorites
 create policy "favorites update own" on public.favorites
   for update to authenticated
   using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+create table if not exists public.favorite_countries (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  country_code text not null,
+  created_at timestamptz not null default now(),
+  primary key (user_id, country_code)
+);
+
+alter table public.favorite_countries enable row level security;
+
+grant select, insert, delete on public.favorite_countries to authenticated;
+
+drop policy if exists "favorite countries read own" on public.favorite_countries;
+drop policy if exists "favorite countries insert own" on public.favorite_countries;
+drop policy if exists "favorite countries delete own" on public.favorite_countries;
+
+create or replace function public.can_add_favorite_country(target uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select auth.uid() = target
+    and (
+      select count(*) from public.favorite_countries f where f.user_id = target
+    ) < (
+      case
+        when (select count(*) from public.ratings r where r.user_id = target) >= 10
+         and (select count(*) from public.ratings r where r.user_id = target and r.stars >= 4) >= 5
+         and (select count(*) from public.favorite_countries f where f.user_id = target) >= 3
+        then 10
+        when (select count(*) from public.ratings r where r.user_id = target) >= 3
+         and (select count(*) from public.favorite_countries f where f.user_id = target) >= 1
+        then 3
+        else 1
+      end
+    );
+$$;
+
+revoke all on function public.can_add_favorite_country(uuid) from public;
+grant execute on function public.can_add_favorite_country(uuid) to authenticated;
+
+create policy "favorite countries read own" on public.favorite_countries
+  for select to authenticated using (auth.uid() = user_id);
+
+create policy "favorite countries delete own" on public.favorite_countries
+  for delete to authenticated using (auth.uid() = user_id);
+
+create policy "favorite countries insert own" on public.favorite_countries
+  for insert to authenticated
+  with check (public.can_add_favorite_country(user_id));

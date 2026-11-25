@@ -17,9 +17,9 @@ enum BackendError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .notSignedIn:
-            "Az értékeléshez jelentkezz be a Fiók lapon."
+            "Sign in on the Account tab to rate."
         case .schemaMissing:
-            "A Supabase táblák még hiányoznak. Az SQL Editorban futtasd a projekt supabase/schema.sql fájlját."
+            "The Supabase tables are still missing. Run supabase/schema.sql in the SQL Editor."
         case .message(let text):
             text
         }
@@ -71,9 +71,9 @@ enum Backend {
 
     static func pingSchema() async -> SchemaState {
         do {
-            let _: [FavoriteIDRow] = try await client
-                .from("favorites")
-                .select("user_id")
+            let _: [FavoriteCountryRow] = try await client
+                .from("favorite_countries")
+                .select("country_code")
                 .limit(1)
                 .execute()
                 .value
@@ -93,40 +93,128 @@ enum Backend {
                 .limit(1)
                 .execute()
                 .value
-            return rows.first?.favorite
+            let countries: [FavoriteCountryRow] = try await client
+                .from("favorite_countries")
+                .select("country_code")
+                .eq("user_id", value: userID.uuidString)
+                .order("created_at")
+                .execute()
+                .value
+            var favorite = rows.first?.favorite ?? Favorite()
+            var codes = countries.map(\.countryCode)
+            if codes.isEmpty, let legacy = rows.first?.countryCode, !legacy.isEmpty {
+                let payload = FavoriteCountryWrite(userID: userID, countryCode: legacy)
+                _ = try? await client
+                    .from("favorite_countries")
+                    .insert(payload)
+                    .execute()
+                codes = [legacy]
+            }
+            favorite.countryCodes = codes
+            if rows.first == nil && codes.isEmpty {
+                return nil
+            }
+            return favorite
         } catch {
             throw map(error)
         }
     }
 
-    static func saveFavoriteCountry(_ code: String, keeping current: Favorite?) async throws -> Favorite {
-        let next = Favorite(
-            countryCode: code,
-            placeKey: current?.placeKey,
-            name: current?.name,
-            city: current?.city,
-            countryName: current?.countryName,
-            address: current?.address,
-            latitude: current?.latitude,
-            longitude: current?.longitude
-        )
-        try await upsert(next)
+    static func fetchTier() async throws -> TierProgress {
+        guard let userID = await refreshSession()?.id else { return TierProgress() }
+        do {
+            let ratings: [StarRow] = try await client
+                .from("ratings")
+                .select("stars")
+                .eq("user_id", value: userID.uuidString)
+                .execute()
+                .value
+            let countries: [FavoriteCountryRow] = try await client
+                .from("favorite_countries")
+                .select("country_code")
+                .eq("user_id", value: userID.uuidString)
+                .execute()
+                .value
+            return TierProgress(
+                ratingCount: ratings.count,
+                goodRatingCount: ratings.filter { $0.stars >= 4 }.count,
+                favoriteCountryCount: countries.count
+            )
+        } catch {
+            throw map(error)
+        }
+    }
+
+    static func toggleFavoriteCountry(_ code: String, keeping current: Favorite?, limit: Int) async throws -> Favorite {
+        guard let userID = await refreshSession()?.id else {
+            throw BackendError.notSignedIn
+        }
+        var next = current ?? Favorite()
+        do {
+            if next.countryCodes.contains(code) {
+                try await client
+                    .from("favorite_countries")
+                    .delete()
+                    .eq("user_id", value: userID.uuidString)
+                    .eq("country_code", value: code)
+                    .execute()
+                next.countryCodes.removeAll { $0 == code }
+            } else {
+                guard next.countryCodes.count < limit else {
+                    throw BackendError.message("At this level you can save at most \(limit) favorite countries.")
+                }
+                let payload = FavoriteCountryWrite(userID: userID, countryCode: code)
+                try await client
+                    .from("favorite_countries")
+                    .insert(payload)
+                    .execute()
+                next.countryCodes.append(code)
+            }
+        } catch {
+            throw map(error)
+        }
         return next
     }
 
     static func saveFavoriteRestaurant(_ place: RestaurantPlace, keeping current: Favorite?) async throws -> Favorite {
-        let next = Favorite(
-            countryCode: current?.countryCode ?? place.countryCode,
-            placeKey: place.placeKey,
-            name: place.name,
-            city: place.city,
-            countryName: place.countryName,
-            address: place.address,
-            latitude: place.latitude,
-            longitude: place.longitude
-        )
+        var next = current ?? Favorite()
+        next.countryCode = place.countryCode
+        next.placeKey = place.placeKey
+        next.name = place.name
+        next.city = place.city
+        next.countryName = place.countryName
+        next.address = place.address
+        next.latitude = place.latitude
+        next.longitude = place.longitude
         try await upsert(next)
         return next
+    }
+
+    static func places(city: String, countryCode: String) async throws -> [RestaurantPlace] {
+        do {
+            let rows: [RestaurantRow] = try await client
+                .from("restaurants")
+                .select()
+                .eq("city", value: city)
+                .eq("country_code", value: countryCode)
+                .execute()
+                .value
+            return rows.map { row in
+                RestaurantPlace(
+                    placeKey: row.placeKey,
+                    name: row.name,
+                    address: row.address,
+                    city: row.city,
+                    countryCode: row.countryCode,
+                    countryName: row.countryName,
+                    latitude: row.latitude,
+                    longitude: row.longitude,
+                    cuisine: row.cuisine
+                )
+            }
+        } catch {
+            throw map(error)
+        }
     }
 
     private static func upsert(_ favorite: Favorite) async throws {
@@ -175,7 +263,8 @@ enum Backend {
             countryName: place.countryName,
             address: place.address,
             latitude: place.latitude,
-            longitude: place.longitude
+            longitude: place.longitude,
+            cuisine: place.cuisine ?? "General"
         )
         do {
             let created: [RestaurantRow] = try await client
@@ -193,7 +282,7 @@ enum Backend {
             }
             throw map(error)
         }
-        throw BackendError.message("Az éttermet nem sikerült menteni.")
+        throw BackendError.message("The restaurant could not be saved.")
     }
 
     static func ratings(restaurantID: UUID) async throws -> [RatingRow] {
@@ -245,7 +334,7 @@ enum Backend {
         }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed.count <= 80 else {
-            throw BackendError.message("Az étel neve 1–80 karakter lehet.")
+            throw BackendError.message("A dish name must be 1–80 characters.")
         }
         let payload = DishInsert(restaurantID: restaurantID, userID: userID, name: trimmed)
         do {
@@ -256,7 +345,7 @@ enum Backend {
         } catch {
             let text = String(describing: error).lowercased()
             if text.contains("duplicate") || text.contains("23505") || text.contains("dishes_one_vote") {
-                throw BackendError.message("Ezt az ételt már hozzáadtad.")
+                throw BackendError.message("You already added this dish.")
             }
             throw map(error)
         }
@@ -336,6 +425,42 @@ enum Backend {
         }
     }
 
+    static func dishPreviews(for places: [RestaurantPlace]) async -> [String: [DishRank]] {
+        let keys = places.map(\.placeKey)
+        guard !keys.isEmpty else { return [:] }
+        do {
+            let restaurants: [RestaurantRow] = try await client
+                .from("restaurants")
+                .select()
+                .in("place_key", values: keys)
+                .execute()
+                .value
+            guard !restaurants.isEmpty else { return [:] }
+            let ids = restaurants.map(\.id.uuidString)
+            let dishes: [DishRow] = try await client
+                .from("dishes")
+                .select()
+                .in("restaurant_id", values: ids)
+                .execute()
+                .value
+            let userID = await refreshSession()?.id
+            var byRestaurant: [UUID: [DishRow]] = [:]
+            for dish in dishes {
+                byRestaurant[dish.restaurantID, default: []].append(dish)
+            }
+            var result: [String: [DishRank]] = [:]
+            for restaurant in restaurants {
+                let ranked = DishRank.ranked(from: byRestaurant[restaurant.id] ?? [], userID: userID, limit: 3)
+                if !ranked.isEmpty {
+                    result[restaurant.placeKey] = ranked
+                }
+            }
+            return result
+        } catch {
+            return [:]
+        }
+    }
+
     private static func map(_ error: Error) -> Error {
         if isMissingSchema(error) {
             return BackendError.schemaMissing
@@ -356,11 +481,25 @@ private struct IdRow: Decodable, Sendable {
     let id: UUID
 }
 
-private struct FavoriteIDRow: Decodable, Sendable {
+private struct StarRow: Decodable, Sendable {
+    let stars: Int
+}
+
+private struct FavoriteCountryRow: Decodable, Sendable {
+    let countryCode: String
+
+    enum CodingKeys: String, CodingKey {
+        case countryCode = "country_code"
+    }
+}
+
+private struct FavoriteCountryWrite: Encodable, Sendable {
     let userID: UUID
+    let countryCode: String
 
     enum CodingKeys: String, CodingKey {
         case userID = "user_id"
+        case countryCode = "country_code"
     }
 }
 
@@ -377,14 +516,14 @@ private struct FavoriteRow: Decodable, Sendable {
 
     var favorite: Favorite {
         Favorite(
-            countryCode: countryCode,
             placeKey: placeKey,
             name: name,
             city: city,
             countryName: countryName,
             address: address,
             latitude: latitude,
-            longitude: longitude
+            longitude: longitude,
+            countryCode: countryCode
         )
     }
 
@@ -446,6 +585,7 @@ private struct RestaurantInsert: Encodable, Sendable {
     let address: String
     let latitude: Double
     let longitude: Double
+    let cuisine: String?
 
     enum CodingKeys: String, CodingKey {
         case placeKey = "place_key"
@@ -456,6 +596,7 @@ private struct RestaurantInsert: Encodable, Sendable {
         case address
         case latitude
         case longitude
+        case cuisine
     }
 }
 

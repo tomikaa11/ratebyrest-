@@ -16,40 +16,50 @@ struct AccountView: View {
                 }
             }
             if model.isSignedIn {
-                Section("Fiók") {
-                    Text(model.userEmail ?? "Bejelentkezve")
-                    if let country = model.favorite?.country {
-                        Text("Kedvenc ország: \(country.name)")
+                Section("Level") {
+                    Text(model.tier.title)
+                        .font(.headline)
+                        .foregroundStyle(Theme.accent)
+                    Text("Ratings: \(model.tier.ratingCount), good ones: \(model.tier.goodRatingCount)")
+                    Text("Favorite countries: \(model.tier.favoriteCountryCount)/\(model.tier.maxFavoriteCountries)")
+                    Text(model.tier.nextHint)
+                        .font(.footnote)
+                        .foregroundStyle(Theme.muted)
+                }
+                Section("Account") {
+                    Text(model.userEmail ?? "Signed in")
+                    if let favorite = model.favorite, !favorite.countries.isEmpty {
+                        Text("Favorite countries: \(favorite.countries.map(\.name).joined(separator: ", "))")
                     }
                     if let place = model.favorite?.restaurant {
-                        Text("Kedvenc hely: \(place.name), \(place.city)")
+                        Text("Favorite place: \(place.name), \(place.city)")
                     }
-                    Button("Kijelentkezés") { Task { await signOut() } }
-                    Button("Fiók törlése", role: .destructive) { confirmDelete = true }
+                    Button("Sign out") { Task { await signOut() } }
+                    Button("Delete account", role: .destructive) { confirmDelete = true }
                 }
-                Section("Adataid") {
-                    Text("Az e-mail címed, az értékeléseid, az ételeid és a kedvenc országod meg éttermed a Supabase adatbázisban vannak, a fiókodhoz kötve. A helyzeted csak az útvonalhoz kell, és nem mentjük el.")
+                Section("Your data") {
+                    Text("Your email, ratings, dishes, favorite countries, and favorite restaurant are stored in Supabase on your account. Your location is only used for directions and is not saved.")
                         .font(.footnote)
                         .foregroundStyle(Theme.muted)
                 }
             } else {
-                Section("Belépés") {
-                    TextField("E-mail", text: $email)
+                Section("Sign in") {
+                    TextField("Email", text: $email)
                         .textContentType(.emailAddress)
                         .keyboardType(.emailAddress)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                    SecureField("Jelszó, legalább 6 karakter", text: $password)
+                    SecureField("Password, at least 6 characters", text: $password)
                         .textContentType(.password)
-                    Button(isWorking ? "Folyamatban…" : "Bejelentkezés") {
+                    Button(isWorking ? "Working…" : "Sign in") {
                         Task { await signIn() }
                     }
                     .disabled(!canSubmit || isWorking)
-                    Button("Regisztráció") { Task { await signUp() } }
+                    Button("Create account") { Task { await signUp() } }
                         .disabled(!canSubmit || isWorking)
                 }
                 Section {
-                    Text("Az értékeléshez és az ételekhez fiók kell. Más belépési módot az app nem használ, ezért a Sign in with Apple nem kötelező.")
+                    Text("Ratings and dishes need an account. The app does not use another sign-in method, so Sign in with Apple is not required.")
                         .font(.footnote)
                         .foregroundStyle(Theme.muted)
                 }
@@ -57,18 +67,18 @@ struct AccountView: View {
         }
         .scrollContentBackground(.hidden)
         .background(Theme.background)
-        .navigationTitle("Fiók")
-        .alert("Fiók", isPresented: Binding(
+        .navigationTitle("Account")
+        .alert("Account", isPresented: Binding(
             get: { message != nil },
             set: { if !$0 { message = nil } }
         )) {
-            Button("Rendben", role: .cancel) {}
+            Button("OK", role: .cancel) {}
         } message: {
             Text(message ?? "")
         }
-        .confirmationDialog("Törlöd a fiókot és az értékeléseidet?", isPresented: $confirmDelete, titleVisibility: .visible) {
-            Button("Fiók törlése", role: .destructive) { Task { await deleteAccount() } }
-            Button("Mégse", role: .cancel) {}
+        .confirmationDialog("Delete your account and ratings?", isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("Delete account", role: .destructive) { Task { await deleteAccount() } }
+            Button("Cancel", role: .cancel) {}
         }
     }
 
@@ -99,7 +109,7 @@ struct AccountView: View {
             await model.refreshSession()
             password = ""
             if !ready && !model.isSignedIn {
-                message = "Elküldtük a megerősítő e-mailt. Utána jelentkezz be."
+                message = "We sent a confirmation email. Sign in after you confirm it."
             }
         } catch {
             message = error.localizedDescription
@@ -119,7 +129,7 @@ struct AccountView: View {
         do {
             try await Backend.deleteAccount()
             await model.refreshSession()
-            message = "A fiók törölve."
+            message = "The account was deleted."
         } catch {
             message = error.localizedDescription
         }
